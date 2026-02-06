@@ -16,7 +16,12 @@ from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFile
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
-from nanobot.agent.tools.image import SdxlImageTool, Flux2KleinBase9BTool
+from nanobot.agent.tools.image import (
+    SdxlImageTool,
+    Flux2KleinBase9BTool,
+    get_image_job_status,
+    is_image_job_active,
+)
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.subagent import SubagentManager
@@ -168,6 +173,24 @@ class AgentLoop:
         
         # Get or create session
         session = self.sessions.get_or_create(msg.session_key)
+
+        # Short-circuit status checks while an image job is running
+        normalized = msg.content.strip().lower() if msg.content else ""
+        if is_image_job_active(msg.channel, msg.chat_id) and normalized in {
+            "how?",
+            "how",
+            "continue",
+            "status",
+            "progress",
+            "still?",
+            "still",
+        }:
+            status = get_image_job_status(msg.channel, msg.chat_id)
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=status or "Image generation is in progress. Please wait.",
+            )
         
         # Update tool contexts
         message_tool = self.tools.get("message")

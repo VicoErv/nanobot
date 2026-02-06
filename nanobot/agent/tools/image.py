@@ -25,6 +25,29 @@ _PIPELINE: StableDiffusionXLPipeline | None = None
 _PIPELINE_LOCK = asyncio.Lock()
 _FLUX_PIPELINE: "Flux2KleinPipeline | None" = None
 _FLUX_PIPELINE_LOCK = asyncio.Lock()
+_ACTIVE_JOBS: dict[str, dict[str, object]] = {}
+
+
+def _job_key(channel: str, chat_id: str) -> str:
+    return f"{channel}:{chat_id}"
+
+
+def is_image_job_active(channel: str, chat_id: str) -> bool:
+    job = _ACTIVE_JOBS.get(_job_key(channel, chat_id))
+    if not job:
+        return False
+    task = job.get("task")
+    return isinstance(task, asyncio.Task) and not task.done()
+
+
+def get_image_job_status(channel: str, chat_id: str) -> str | None:
+    job = _ACTIVE_JOBS.get(_job_key(channel, chat_id))
+    if not job:
+        return None
+    started_at = job.get("started_at")
+    tool = job.get("tool")
+    prompt = job.get("prompt")
+    return f"Image generation in progress ({tool}). Started at {started_at}. Prompt: {prompt}"
 
 
 def _load_pipeline(model_id: str) -> StableDiffusionXLPipeline:
@@ -141,6 +164,66 @@ class SdxlImageTool(Tool):
             "required": ["prompt"],
         }
 
+    def _generate_image(
+        self,
+        pipe: StableDiffusionXLPipeline,
+        prompt: str,
+        negative_prompt: str | None,
+        seed: int,
+    ) -> Path:
+        generator = torch.Generator(device=pipe.device).manual_seed(seed)
+        result = pipe(
+            prompt=prompt,
+            negative_prompt=negative_prompt
+            or "low quality, worst quality, watermark",
+            num_inference_steps=4,
+            guidance_scale=0.0,
+            generator=generator,
+            width=512,
+            height=512,
+        )
+        image = result.images[0]
+
+        media_dir = Path.home() / ".nanobot" / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"sdxl_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        file_path = media_dir / filename
+        image.save(file_path)
+        return file_path
+
+    async def _run_job(
+        self,
+        channel: str,
+        chat_id: str,
+        prompt: str,
+        negative_prompt: str | None,
+        seed: int,
+    ) -> None:
+        try:
+            pipe = await _get_pipeline(self._model_id)
+            file_path = await asyncio.to_thread(
+                self._generate_image, pipe, prompt, negative_prompt, seed
+            )
+            msg = OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=f"Here is your SDXL image. (seed={seed})",
+                media=[str(file_path)],
+            )
+            await self._send_callback(msg)
+        except Exception as e:
+            logger.error(f"SDXL generation failed: {e}")
+            if self._send_callback:
+                await self._send_callback(
+                    OutboundMessage(
+                        channel=channel,
+                        chat_id=chat_id,
+                        content=f"Error: SDXL generation failed: {e}",
+                    )
+                )
+        finally:
+            _ACTIVE_JOBS.pop(_job_key(channel, chat_id), None)
+
     async def execute(
         self,
         prompt: str,
@@ -155,45 +238,20 @@ class SdxlImageTool(Tool):
         if not self._send_callback:
             return "Error: Message sending not configured"
 
+        if is_image_job_active(channel, chat_id):
+            return "Image generation is already in progress. Reply 'continue' for status."
+
         seed = random.randint(0, 2**31 - 1)
-
-        try:
-            pipe = await _get_pipeline(self._model_id)
-            generator = torch.Generator(device=pipe.device).manual_seed(seed)
-            result = pipe(
-                prompt=prompt,
-                negative_prompt=negative_prompt
-                or "low quality, worst quality, watermark",
-                num_inference_steps=4,
-                guidance_scale=0.0,
-                generator=generator,
-                width=512,
-                height=512,
-            )
-            image = result.images[0]
-        except Exception as e:
-            logger.error(f"SDXL generation failed: {e}")
-            return f"Error: SDXL generation failed: {e}"
-
-        media_dir = Path.home() / ".nanobot" / "media"
-        media_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"sdxl_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        file_path = media_dir / filename
-        image.save(file_path)
-
-        msg = OutboundMessage(
-            channel=channel,
-            chat_id=chat_id,
-            content=f"Here is your SDXL image. (seed={seed})",
-            media=[str(file_path)],
+        task = asyncio.create_task(
+            self._run_job(channel, chat_id, prompt, negative_prompt, seed)
         )
-
-        try:
-            await self._send_callback(msg)
-            return f"Image generated and sent: {file_path}"
-        except Exception as e:
-            logger.error(f"Failed to send SDXL image: {e}")
-        return f"Error: Failed to send image: {e}"
+        _ACTIVE_JOBS[_job_key(channel, chat_id)] = {
+            "task": task,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "tool": "sdxl",
+            "prompt": prompt[:200],
+        }
+        return "Started SDXL image generation. I'll send the result when it's ready."
 
 
 class Flux2KleinBase9BTool(Tool):
@@ -248,6 +306,67 @@ class Flux2KleinBase9BTool(Tool):
             "required": ["prompt"],
         }
 
+    def _generate_image(
+        self,
+        pipe: "Flux2KleinPipeline",
+        prompt: str,
+        reference_image: list[Image.Image] | None,
+        seed: int,
+    ) -> Path:
+        generator = torch.Generator(device=pipe.device).manual_seed(seed)
+        args: dict[str, object] = {
+            "prompt": prompt,
+            "width": 1024,
+            "height": 1024,
+            "guidance_scale": 4.0,
+            "num_inference_steps": 50,
+            "generator": generator,
+        }
+        if reference_image is not None:
+            args["image"] = reference_image
+        result = pipe(**args)
+        image = result.images[0]
+
+        media_dir = Path.home() / ".nanobot" / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"flux2_klein_base_9b_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        file_path = media_dir / filename
+        image.save(file_path)
+        return file_path
+
+    async def _run_job(
+        self,
+        channel: str,
+        chat_id: str,
+        prompt: str,
+        reference_image: list[Image.Image] | None,
+        seed: int,
+    ) -> None:
+        try:
+            pipe = await _get_flux_pipeline(self._model_id)
+            file_path = await asyncio.to_thread(
+                self._generate_image, pipe, prompt, reference_image, seed
+            )
+            msg = OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=f"Here is your FLUX.2 [klein] 9B Base image. (seed={seed})",
+                media=[str(file_path)],
+            )
+            await self._send_callback(msg)
+        except Exception as e:
+            logger.error(f"FLUX.2 generation failed: {e}")
+            if self._send_callback:
+                await self._send_callback(
+                    OutboundMessage(
+                        channel=channel,
+                        chat_id=chat_id,
+                        content=f"Error: FLUX.2 generation failed: {e}",
+                    )
+                )
+        finally:
+            _ACTIVE_JOBS.pop(_job_key(channel, chat_id), None)
+
     async def execute(
         self,
         prompt: str,
@@ -262,6 +381,9 @@ class Flux2KleinBase9BTool(Tool):
         if not self._send_callback:
             return "Error: Message sending not configured"
 
+        if is_image_job_active(channel, chat_id):
+            return "Image generation is already in progress. Reply 'continue' for status."
+
         seed = random.randint(0, 2**31 - 1)
 
         image_input: list[Image.Image] | None = None
@@ -271,42 +393,13 @@ class Flux2KleinBase9BTool(Tool):
                 return f"Error: reference_image not found: {reference_image}"
             image_input = [Image.open(ref_path).convert("RGB")]
 
-        try:
-            pipe = await _get_flux_pipeline(self._model_id)
-            generator = torch.Generator(device=pipe.device).manual_seed(seed)
-
-            args: dict[str, object] = {
-                "prompt": prompt,
-                "width": 1024,
-                "height": 1024,
-                "guidance_scale": 4.0,
-                "num_inference_steps": 50,
-                "generator": generator,
-            }
-            if image_input is not None:
-                args["image"] = image_input
-            result = pipe(**args)
-            image = result.images[0]
-        except Exception as e:
-            logger.error(f"FLUX.2 generation failed: {e}")
-            return f"Error: FLUX.2 generation failed: {e}"
-
-        media_dir = Path.home() / ".nanobot" / "media"
-        media_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"flux2_klein_base_9b_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        file_path = media_dir / filename
-        image.save(file_path)
-
-        msg = OutboundMessage(
-            channel=channel,
-            chat_id=chat_id,
-            content=f"Here is your FLUX.2 [klein] 9B Base image. (seed={seed})",
-            media=[str(file_path)],
+        task = asyncio.create_task(
+            self._run_job(channel, chat_id, prompt, image_input, seed)
         )
-
-        try:
-            await self._send_callback(msg)
-            return f"Image generated and sent: {file_path}"
-        except Exception as e:
-            logger.error(f"Failed to send FLUX.2 image: {e}")
-            return f"Error: Failed to send image: {e}"
+        _ACTIVE_JOBS[_job_key(channel, chat_id)] = {
+            "task": task,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "tool": "flux2-klein-base-9b",
+            "prompt": prompt[:200],
+        }
+        return "Started FLUX.2 image generation. I'll send the result when it's ready."
