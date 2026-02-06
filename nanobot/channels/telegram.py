@@ -171,16 +171,25 @@ class TelegramChannel(BaseChannel):
             html_content = _markdown_to_telegram_html(msg.content)
 
             if media_path:
+                is_audio = media_path.suffix.lower() in {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
                 try:
                     with open(media_path, "rb") as f:
-                        await self._app.bot.send_photo(
-                            chat_id=chat_id,
-                            photo=f,
-                            caption=html_content,
-                            parse_mode="HTML"
-                        )
+                        if is_audio:
+                            await self._app.bot.send_audio(
+                                chat_id=chat_id,
+                                audio=f,
+                                caption=html_content,
+                                parse_mode="HTML"
+                            )
+                        else:
+                            await self._app.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=f,
+                                caption=html_content,
+                                parse_mode="HTML"
+                            )
                 except Exception as e:
-                    logger.warning(f"send_photo failed, trying send_document: {e}")
+                    logger.warning(f"send_photo/send_audio failed, trying send_document: {e}")
                     with open(media_path, "rb") as f:
                         await self._app.bot.send_document(
                             chat_id=chat_id,
@@ -209,15 +218,23 @@ class TelegramChannel(BaseChannel):
                         media_path = None
 
                 if media_path:
+                    is_audio = media_path.suffix.lower() in {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
                     try:
                         with open(media_path, "rb") as f:
-                            await self._app.bot.send_photo(
-                                chat_id=chat_id,
-                                photo=f,
-                                caption=msg.content
-                            )
+                            if is_audio:
+                                await self._app.bot.send_audio(
+                                    chat_id=chat_id,
+                                    audio=f,
+                                    caption=msg.content
+                                )
+                            else:
+                                await self._app.bot.send_photo(
+                                    chat_id=chat_id,
+                                    photo=f,
+                                    caption=msg.content
+                                )
                     except Exception as e3:
-                        logger.warning(f"send_photo failed, trying send_document: {e3}")
+                        logger.warning(f"send_photo/send_audio failed, trying send_document: {e3}")
                         with open(media_path, "rb") as f:
                             await self._app.bot.send_document(
                                 chat_id=chat_id,

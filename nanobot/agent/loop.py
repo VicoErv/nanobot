@@ -16,12 +16,9 @@ from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFile
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
-from nanobot.agent.tools.image import (
-    SdxlImageTool,
-    Flux2KleinBase9BTool,
-    get_image_job_status,
-    is_image_job_active,
-)
+from nanobot.agent.tools.image import SdxlImageTool, Flux2KleinBase9BTool
+from nanobot.agent.tools.audio import AceStepTurboTextToAudioTool
+from nanobot.agent.tools.media_jobs import get_job_status, is_job_active
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.subagent import SubagentManager
@@ -111,6 +108,10 @@ class AgentLoop:
         # Image tool (FLUX.2 klein base 9B)
         flux_tool = Flux2KleinBase9BTool(send_callback=self.bus.publish_outbound)
         self.tools.register(flux_tool)
+
+        # Audio tool (ACE-Step 1.5 Turbo)
+        ace_tool = AceStepTurboTextToAudioTool(send_callback=self.bus.publish_outbound)
+        self.tools.register(ace_tool)
         
         # Spawn tool (for subagents)
         spawn_tool = SpawnTool(manager=self.subagents)
@@ -174,9 +175,9 @@ class AgentLoop:
         # Get or create session
         session = self.sessions.get_or_create(msg.session_key)
 
-        # Short-circuit status checks while an image job is running
+        # Short-circuit status checks while a media job is running
         normalized = msg.content.strip().lower() if msg.content else ""
-        if is_image_job_active(msg.channel, msg.chat_id) and normalized in {
+        if is_job_active(msg.channel, msg.chat_id) and normalized in {
             "how?",
             "how",
             "continue",
@@ -185,11 +186,11 @@ class AgentLoop:
             "still?",
             "still",
         }:
-            status = get_image_job_status(msg.channel, msg.chat_id)
+            status = get_job_status(msg.channel, msg.chat_id)
             return OutboundMessage(
                 channel=msg.channel,
                 chat_id=msg.chat_id,
-                content=status or "Image generation is in progress. Please wait.",
+                content=status or "Media generation is in progress. Please wait.",
             )
         
         # Update tool contexts
@@ -204,6 +205,10 @@ class AgentLoop:
         flux_tool = self.tools.get("generate_image_flux2_klein_base_9b")
         if isinstance(flux_tool, Flux2KleinBase9BTool):
             flux_tool.set_context(msg.channel, msg.chat_id)
+
+        ace_tool = self.tools.get("generate_audio_acestep_v15_turbo")
+        if isinstance(ace_tool, AceStepTurboTextToAudioTool):
+            ace_tool.set_context(msg.channel, msg.chat_id)
         
         spawn_tool = self.tools.get("spawn")
         if isinstance(spawn_tool, SpawnTool):
@@ -256,6 +261,7 @@ class AgentLoop:
                 
                 # Execute tools
                 suppress_final_response = False
+                suppress_final_response = False
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments)
                     logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
@@ -266,6 +272,16 @@ class AgentLoop:
                     if tool_call.name in {
                         "generate_image_sdxl",
                         "generate_image_flux2_klein_base_9b",
+                        "generate_audio_acestep_v15_turbo",
+                    }:
+                        suppress_final_response = True
+                if suppress_final_response:
+                    # Media tools send their own messages asynchronously.
+                    return None
+                    if tool_call.name in {
+                        "generate_image_sdxl",
+                        "generate_image_flux2_klein_base_9b",
+                        "generate_audio_acestep_v15_turbo",
                     }:
                         suppress_final_response = True
                 if suppress_final_response:
@@ -325,6 +341,10 @@ class AgentLoop:
         flux_tool = self.tools.get("generate_image_flux2_klein_base_9b")
         if isinstance(flux_tool, Flux2KleinBase9BTool):
             flux_tool.set_context(origin_channel, origin_chat_id)
+
+        ace_tool = self.tools.get("generate_audio_acestep_v15_turbo")
+        if isinstance(ace_tool, AceStepTurboTextToAudioTool):
+            ace_tool.set_context(origin_channel, origin_chat_id)
         
         spawn_tool = self.tools.get("spawn")
         if isinstance(spawn_tool, SpawnTool):

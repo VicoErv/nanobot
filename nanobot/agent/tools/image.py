@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - optional dependency version
     Flux2KleinPipeline = None  # type: ignore[assignment]
 
 from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.media_jobs import clear_job, is_job_active, register_job
 from nanobot.bus.events import OutboundMessage
 
 
@@ -25,29 +26,6 @@ _PIPELINE: StableDiffusionXLPipeline | None = None
 _PIPELINE_LOCK = asyncio.Lock()
 _FLUX_PIPELINE: "Flux2KleinPipeline | None" = None
 _FLUX_PIPELINE_LOCK = asyncio.Lock()
-_ACTIVE_JOBS: dict[str, dict[str, object]] = {}
-
-
-def _job_key(channel: str, chat_id: str) -> str:
-    return f"{channel}:{chat_id}"
-
-
-def is_image_job_active(channel: str, chat_id: str) -> bool:
-    job = _ACTIVE_JOBS.get(_job_key(channel, chat_id))
-    if not job:
-        return False
-    task = job.get("task")
-    return isinstance(task, asyncio.Task) and not task.done()
-
-
-def get_image_job_status(channel: str, chat_id: str) -> str | None:
-    job = _ACTIVE_JOBS.get(_job_key(channel, chat_id))
-    if not job:
-        return None
-    started_at = job.get("started_at")
-    tool = job.get("tool")
-    prompt = job.get("prompt")
-    return f"Image generation in progress ({tool}). Started at {started_at}. Prompt: {prompt}"
 
 
 def _load_pipeline(model_id: str) -> StableDiffusionXLPipeline:
@@ -222,7 +200,7 @@ class SdxlImageTool(Tool):
                     )
                 )
         finally:
-            _ACTIVE_JOBS.pop(_job_key(channel, chat_id), None)
+            clear_job(channel, chat_id)
 
     async def execute(
         self,
@@ -238,7 +216,7 @@ class SdxlImageTool(Tool):
         if not self._send_callback:
             return "Error: Message sending not configured"
 
-        if is_image_job_active(channel, chat_id):
+        if is_job_active(channel, chat_id):
             if self._send_callback:
                 await self._send_callback(
                     OutboundMessage(
@@ -253,12 +231,14 @@ class SdxlImageTool(Tool):
         task = asyncio.create_task(
             self._run_job(channel, chat_id, prompt, negative_prompt, seed)
         )
-        _ACTIVE_JOBS[_job_key(channel, chat_id)] = {
-            "task": task,
-            "started_at": datetime.now().isoformat(timespec="seconds"),
-            "tool": "sdxl",
-            "prompt": prompt[:200],
-        }
+        register_job(
+            channel=channel,
+            chat_id=chat_id,
+            task=task,
+            tool="sdxl",
+            prompt=prompt,
+            started_at=datetime.now().isoformat(timespec="seconds"),
+        )
         if self._send_callback:
             await self._send_callback(
                 OutboundMessage(
@@ -381,7 +361,7 @@ class Flux2KleinBase9BTool(Tool):
                     )
                 )
         finally:
-            _ACTIVE_JOBS.pop(_job_key(channel, chat_id), None)
+            clear_job(channel, chat_id)
 
     async def execute(
         self,
@@ -397,7 +377,7 @@ class Flux2KleinBase9BTool(Tool):
         if not self._send_callback:
             return "Error: Message sending not configured"
 
-        if is_image_job_active(channel, chat_id):
+        if is_job_active(channel, chat_id):
             if self._send_callback:
                 await self._send_callback(
                     OutboundMessage(
@@ -420,12 +400,14 @@ class Flux2KleinBase9BTool(Tool):
         task = asyncio.create_task(
             self._run_job(channel, chat_id, prompt, image_input, seed)
         )
-        _ACTIVE_JOBS[_job_key(channel, chat_id)] = {
-            "task": task,
-            "started_at": datetime.now().isoformat(timespec="seconds"),
-            "tool": "flux2-klein-base-9b",
-            "prompt": prompt[:200],
-        }
+        register_job(
+            channel=channel,
+            chat_id=chat_id,
+            task=task,
+            tool="flux2-klein-base-9b",
+            prompt=prompt,
+            started_at=datetime.now().isoformat(timespec="seconds"),
+        )
         if self._send_callback:
             await self._send_callback(
                 OutboundMessage(
