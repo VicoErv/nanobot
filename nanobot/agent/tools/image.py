@@ -167,8 +167,8 @@ class SdxlImageTool(Tool):
                 num_inference_steps=4,
                 guidance_scale=0.0,
                 generator=generator,
-                width=1024,
-                height=1024,
+                width=512,
+                height=512,
             )
             image = result.images[0]
         except Exception as e:
