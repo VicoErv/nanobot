@@ -46,6 +46,7 @@ url = "https://download.pytorch.org/whl/rocm7.1"
 [tool.uv.sources]
 torch = { index = "pytorch-rocm" }
 torchvision = { index = "pytorch-rocm" }
+diffusers = { git = "https://github.com/huggingface/diffusers" }
 
 [project.optional-dependencies]
 dev = [
