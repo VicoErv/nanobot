@@ -52,6 +52,13 @@ diffusers = { git = "https://github.com/huggingface/diffusers" }
 "ace-step" = { git = "https://github.com/ACE-Step/ACE-Step-1.5.git" }
 torchaudio = { index = "pytorch-rocm" }
 
+[tool.uv]
+override-dependencies = [
+    "torch>=2.1.0",
+    "torchvision>=0.16.0",
+    "torchaudio>=2.1.0",
+]
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
