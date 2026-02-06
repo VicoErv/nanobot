@@ -51,20 +51,30 @@ async def _get_ace_handlers(model_name: str) -> tuple["AceStepHandler", "LLMHand
             handler = AceStepHandler(persistent_storage_path=str(persistent_storage))
         except TypeError:
             handler = AceStepHandler()
-        handler.initialize_service(
-            project_root=str(persistent_storage),
-            config_path=model_name,
-            device="auto",
-            use_flash_attention=False,
-            compile_model=False,
-            offload_to_cpu=False,
-            offload_dit_to_cpu=False,
-            quantization=None,
-            shared_vae=False,
-            shared_text_encoder=False,
-            shared_text_tokenizer=False,
-            shared_silence_latent=False,
-        )
+        init_kwargs = {
+            "project_root": str(persistent_storage),
+            "config_path": model_name,
+            "device": "auto",
+            "use_flash_attention": False,
+            "compile_model": False,
+            "offload_to_cpu": False,
+            "offload_dit_to_cpu": False,
+            "quantization": None,
+            "shared_vae": False,
+            "shared_text_encoder": False,
+            "shared_text_tokenizer": False,
+            "shared_silence_latent": False,
+        }
+        try:
+            import inspect
+
+            sig = inspect.signature(handler.initialize_service)
+            allowed = set(sig.parameters.keys())
+            init_kwargs = {k: v for k, v in init_kwargs.items() if k in allowed}
+        except Exception:
+            pass
+
+        handler.initialize_service(**init_kwargs)
 
         llm_handler: LLMHandler | None = None
         if LLMHandler is not None and os.environ.get("ACESTEP_USE_LM", "1") == "1":
