@@ -239,7 +239,15 @@ class SdxlImageTool(Tool):
             return "Error: Message sending not configured"
 
         if is_image_job_active(channel, chat_id):
-            return "Image generation is already in progress. Reply 'continue' for status."
+            if self._send_callback:
+                await self._send_callback(
+                    OutboundMessage(
+                        channel=channel,
+                        chat_id=chat_id,
+                        content="Image generation is already in progress. Reply 'continue' for status.",
+                    )
+                )
+            return "already_running"
 
         seed = random.randint(0, 2**31 - 1)
         task = asyncio.create_task(
@@ -251,7 +259,15 @@ class SdxlImageTool(Tool):
             "tool": "sdxl",
             "prompt": prompt[:200],
         }
-        return "Started SDXL image generation. I'll send the result when it's ready."
+        if self._send_callback:
+            await self._send_callback(
+                OutboundMessage(
+                    channel=channel,
+                    chat_id=chat_id,
+                    content="Started SDXL image generation. I'll send the result when it's ready.",
+                )
+            )
+        return "started"
 
 
 class Flux2KleinBase9BTool(Tool):
@@ -382,7 +398,15 @@ class Flux2KleinBase9BTool(Tool):
             return "Error: Message sending not configured"
 
         if is_image_job_active(channel, chat_id):
-            return "Image generation is already in progress. Reply 'continue' for status."
+            if self._send_callback:
+                await self._send_callback(
+                    OutboundMessage(
+                        channel=channel,
+                        chat_id=chat_id,
+                        content="Image generation is already in progress. Reply 'continue' for status.",
+                    )
+                )
+            return "already_running"
 
         seed = random.randint(0, 2**31 - 1)
 
@@ -402,4 +426,12 @@ class Flux2KleinBase9BTool(Tool):
             "tool": "flux2-klein-base-9b",
             "prompt": prompt[:200],
         }
-        return "Started FLUX.2 image generation. I'll send the result when it's ready."
+        if self._send_callback:
+            await self._send_callback(
+                OutboundMessage(
+                    channel=channel,
+                    chat_id=chat_id,
+                    content="Started FLUX.2 image generation. I'll send the result when it's ready.",
+                )
+            )
+        return "started"

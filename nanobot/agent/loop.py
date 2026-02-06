@@ -255,6 +255,7 @@ class AgentLoop:
                 )
                 
                 # Execute tools
+                suppress_final_response = False
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments)
                     logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
@@ -262,6 +263,14 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+                    if tool_call.name in {
+                        "generate_image_sdxl",
+                        "generate_image_flux2_klein_base_9b",
+                    }:
+                        suppress_final_response = True
+                if suppress_final_response:
+                    # Image tools send their own messages asynchronously.
+                    return None
             else:
                 # No tool calls, we're done
                 final_content = response.content
