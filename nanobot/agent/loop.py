@@ -16,6 +16,7 @@ from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFile
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
+from nanobot.agent.tools.image import SdxlImageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.subagent import SubagentManager
@@ -97,6 +98,10 @@ class AgentLoop:
         # Message tool
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
         self.tools.register(message_tool)
+
+        # Image tool (SDXL)
+        image_tool = SdxlImageTool(send_callback=self.bus.publish_outbound)
+        self.tools.register(image_tool)
         
         # Spawn tool (for subagents)
         spawn_tool = SpawnTool(manager=self.subagents)
@@ -164,6 +169,10 @@ class AgentLoop:
         message_tool = self.tools.get("message")
         if isinstance(message_tool, MessageTool):
             message_tool.set_context(msg.channel, msg.chat_id)
+
+        image_tool = self.tools.get("generate_image_sdxl")
+        if isinstance(image_tool, SdxlImageTool):
+            image_tool.set_context(msg.channel, msg.chat_id)
         
         spawn_tool = self.tools.get("spawn")
         if isinstance(spawn_tool, SpawnTool):
@@ -268,6 +277,10 @@ class AgentLoop:
         message_tool = self.tools.get("message")
         if isinstance(message_tool, MessageTool):
             message_tool.set_context(origin_channel, origin_chat_id)
+
+        image_tool = self.tools.get("generate_image_sdxl")
+        if isinstance(image_tool, SdxlImageTool):
+            image_tool.set_context(origin_channel, origin_chat_id)
         
         spawn_tool = self.tools.get("spawn")
         if isinstance(spawn_tool, SpawnTool):

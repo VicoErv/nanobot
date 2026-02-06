@@ -90,7 +90,26 @@ class DiscordChannel(BaseChannel):
         try:
             for attempt in range(3):
                 try:
-                    response = await self._http.post(url, headers=headers, json=payload)
+                    if msg.media:
+                        from pathlib import Path
+                        import mimetypes
+
+                        media_path = Path(msg.media[0])
+                        if media_path.exists():
+                            mime_type, _ = mimetypes.guess_type(str(media_path))
+                            mime_type = mime_type or "application/octet-stream"
+                            with open(media_path, "rb") as f:
+                                files = {
+                                    "files[0]": (media_path.name, f, mime_type)
+                                }
+                                data = {"payload_json": json.dumps(payload)}
+                                response = await self._http.post(
+                                    url, headers=headers, data=data, files=files
+                                )
+                        else:
+                            response = await self._http.post(url, headers=headers, json=payload)
+                    else:
+                        response = await self._http.post(url, headers=headers, json=payload)
                     if response.status_code == 429:
                         data = response.json()
                         retry_after = float(data.get("retry_after", 1.0))
