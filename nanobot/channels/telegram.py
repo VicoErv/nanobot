@@ -171,12 +171,23 @@ class TelegramChannel(BaseChannel):
             html_content = _markdown_to_telegram_html(msg.content)
 
             if media_path:
-                await self._app.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=str(media_path),
-                    caption=html_content,
-                    parse_mode="HTML"
-                )
+                try:
+                    with open(media_path, "rb") as f:
+                        await self._app.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=f,
+                            caption=html_content,
+                            parse_mode="HTML"
+                        )
+                except Exception as e:
+                    logger.warning(f"send_photo failed, trying send_document: {e}")
+                    with open(media_path, "rb") as f:
+                        await self._app.bot.send_document(
+                            chat_id=chat_id,
+                            document=f,
+                            caption=html_content,
+                            parse_mode="HTML"
+                        )
             else:
                 await self._app.bot.send_message(
                     chat_id=chat_id,
@@ -198,11 +209,21 @@ class TelegramChannel(BaseChannel):
                         media_path = None
 
                 if media_path:
-                    await self._app.bot.send_photo(
-                        chat_id=chat_id,
-                        photo=str(media_path),
-                        caption=msg.content
-                    )
+                    try:
+                        with open(media_path, "rb") as f:
+                            await self._app.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=f,
+                                caption=msg.content
+                            )
+                    except Exception as e3:
+                        logger.warning(f"send_photo failed, trying send_document: {e3}")
+                        with open(media_path, "rb") as f:
+                            await self._app.bot.send_document(
+                                chat_id=chat_id,
+                                document=f,
+                                caption=msg.content
+                            )
                 else:
                     await self._app.bot.send_message(
                         chat_id=chat_id,
