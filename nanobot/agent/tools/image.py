@@ -5,7 +5,7 @@ import os
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 import torch
 from diffusers import EulerDiscreteScheduler, StableDiffusionXLPipeline
