@@ -88,12 +88,21 @@ class SdxlImageTool(Tool):
                     "type": "string",
                     "description": "Positive prompt describing the desired image",
                     "minLength": 1,
-                }
+                },
+                "negative_prompt": {
+                    "type": "string",
+                    "description": "Optional negative prompt to avoid unwanted qualities",
+                },
             },
             "required": ["prompt"],
         }
 
-    async def execute(self, prompt: str, **kwargs: object) -> str:
+    async def execute(
+        self,
+        prompt: str,
+        negative_prompt: str | None = None,
+        **kwargs: object,
+    ) -> str:
         channel = self._default_channel
         chat_id = self._default_chat_id
 
@@ -109,7 +118,8 @@ class SdxlImageTool(Tool):
             generator = torch.Generator(device=pipe.device).manual_seed(seed)
             result = pipe(
                 prompt=prompt,
-                negative_prompt="low quality, worst quality, watermark",
+                negative_prompt=negative_prompt
+                or "low quality, worst quality, watermark",
                 num_inference_steps=4,
                 guidance_scale=0.0,
                 generator=generator,
