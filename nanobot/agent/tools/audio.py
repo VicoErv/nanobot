@@ -47,7 +47,10 @@ async def _get_ace_handlers(model_name: str) -> tuple["AceStepHandler", "LLMHand
         persistent_storage = Path.home() / ".cache" / "ace-step"
         persistent_storage.mkdir(parents=True, exist_ok=True)
 
-        handler = AceStepHandler(persistent_storage_path=str(persistent_storage))
+        try:
+            handler = AceStepHandler(persistent_storage_path=str(persistent_storage))
+        except TypeError:
+            handler = AceStepHandler()
         handler.initialize_service(
             project_root=str(persistent_storage),
             config_path=model_name,
@@ -66,7 +69,10 @@ async def _get_ace_handlers(model_name: str) -> tuple["AceStepHandler", "LLMHand
         llm_handler: LLMHandler | None = None
         if LLMHandler is not None and os.environ.get("ACESTEP_USE_LM", "1") == "1":
             try:
-                llm_handler = LLMHandler(persistent_storage_path=str(persistent_storage))
+                try:
+                    llm_handler = LLMHandler(persistent_storage_path=str(persistent_storage))
+                except TypeError:
+                    llm_handler = LLMHandler()
                 checkpoint_dir = Path(persistent_storage) / "checkpoints"
                 llm_handler.initialize(
                     checkpoint_dir=str(checkpoint_dir),
