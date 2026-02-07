@@ -204,7 +204,7 @@ class AceStepTurboTextToAudioTool(Tool):
 
         config = GenerationConfig(**config_kwargs)
 
-        gm_kwargs: dict[str, object] = {
+        base_kwargs: dict[str, object] = {
             "params": params,
             "config": config,
             "handler": handler,
@@ -217,22 +217,31 @@ class AceStepTurboTextToAudioTool(Tool):
             import inspect
 
             sig = inspect.signature(generate_music)
-            allowed = {k: v for k, v in gm_kwargs.items() if k in sig.parameters}
+            kwargs: dict[str, object] = {}
+
+            # Map common alternative parameter names
+            for name in sig.parameters:
+                if name in {"params", "generation_params", "gen_params"}:
+                    kwargs[name] = params
+                elif name in {"config", "generation_config", "gen_config"}:
+                    kwargs[name] = config
+                elif name in base_kwargs:
+                    kwargs[name] = base_kwargs[name]
 
             # Build positional args in signature order to avoid duplicate kwargs.
             args: list[object] = []
             used: set[str] = set()
             for param in sig.parameters.values():
                 if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
-                    if param.name in allowed:
-                        args.append(allowed[param.name])
+                    if param.name in kwargs:
+                        args.append(kwargs[param.name])
                         used.add(param.name)
-            kwargs = {
-                k: v
-                for k, v in allowed.items()
-                if k not in used
-            }
-            results = generate_music(*args, **kwargs)
+            final_kwargs = {k: v for k, v in kwargs.items() if k not in used}
+
+            if not args and not final_kwargs:
+                results = generate_music(params, config)
+            else:
+                results = generate_music(*args, **final_kwargs)
         except Exception:
             # Last resort: minimal positional call
             results = generate_music(params, config)
