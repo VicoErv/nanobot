@@ -166,15 +166,25 @@ class AceStepTurboTextToAudioTool(Tool):
         if GenerationParams is None or GenerationConfig is None or generate_music is None:
             raise RuntimeError("AceStep generation API not available.")
 
-        params = GenerationParams(
-            caption=prompt,
-            lyrics=lyrics or "[Instrumental]",
-            use_audio_prompt=False,
-            audio_prompt_path="",
-            duration=duration,
-            seed=seed,
-            inference_steps=8,
-        )
+        params_kwargs = {
+            "caption": prompt,
+            "lyrics": lyrics or "[Instrumental]",
+            "use_audio_prompt": False,
+            "audio_prompt_path": "",
+            "duration": duration,
+            "seed": seed,
+            "inference_steps": 8,
+        }
+        try:
+            import inspect
+
+            sig = inspect.signature(GenerationParams)
+            allowed = set(sig.parameters.keys())
+            params_kwargs = {k: v for k, v in params_kwargs.items() if k in allowed}
+        except Exception:
+            pass
+
+        params = GenerationParams(**params_kwargs)
 
         config = GenerationConfig(
             output_dir=str(output_dir),
