@@ -84,10 +84,12 @@ async def _get_ace_handlers(model_name: str) -> tuple["AceStepHandler", "LLMHand
                 except TypeError:
                     llm_handler = LLMHandler()
                 checkpoint_dir = Path(persistent_storage) / "checkpoints"
+                lm_model = os.environ.get("ACESTEP_LM_MODEL", "acestep-5Hz-lm-0.6B")
+                lm_backend = os.environ.get("ACESTEP_LM_BACKEND", "pt")
                 init_kwargs = {
                     "checkpoint_dir": str(checkpoint_dir),
-                    "model_name": os.environ.get("ACESTEP_LM_MODEL", "acestep-5Hz-lm-1.7B"),
-                    "backend": "pt",
+                    "lm_model_path": lm_model,
+                    "backend": lm_backend,
                     "device": "auto",
                 }
                 try:
@@ -176,6 +178,7 @@ class AceStepTurboTextToAudioTool(Tool):
             raise RuntimeError("AceStep generation API not available.")
 
         params_kwargs = {
+            "task_type": "text2music",
             "caption": prompt,
             "lyrics": lyrics or "[Instrumental]",
             "use_audio_prompt": False,
@@ -195,12 +198,15 @@ class AceStepTurboTextToAudioTool(Tool):
 
         params = GenerationParams(**params_kwargs)
 
+        output_name = f"acestep_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         config_kwargs = {
             "output_dir": str(output_dir),
-            "output_name": f"acestep_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "save_dir": str(output_dir),
+            "output_name": output_name,
             "sample_rate": 44100,
             "audio_format": self._audio_format,
             "use_random_seed": True,
+            "batch_size": 1,
         }
         try:
             import inspect
@@ -213,60 +219,14 @@ class AceStepTurboTextToAudioTool(Tool):
 
         config = GenerationConfig(**config_kwargs)
 
-        base_kwargs: dict[str, object] = {
-            "params": params,
-            "config": config,
-            "handler": handler,
-            "llm_handler": llm_handler,
-            "opt_handler": None,
-            "load_audio": False,
-            "use_tqdm": False,
-        }
-        try:
-            import inspect
-
-            sig = inspect.signature(generate_music)
-            allowed = set(sig.parameters.keys())
-            extra_kwargs = {
-                k: v
-                for k, v in base_kwargs.items()
-                if k in allowed and k not in {"params", "config"}
-            }
-            # First try: always pass params/config positionally.
-            results = generate_music(params, config, **extra_kwargs)
-        except TypeError:
-            try:
-                import inspect
-
-                sig = inspect.signature(generate_music)
-                kwargs: dict[str, object] = {}
-
-                # Map common alternative parameter names
-                for name in sig.parameters:
-                    if name in {"params", "generation_params", "gen_params"}:
-                        kwargs[name] = params
-                    elif name in {"config", "generation_config", "gen_config"}:
-                        kwargs[name] = config
-                    elif name in base_kwargs:
-                        kwargs[name] = base_kwargs[name]
-
-                # Build positional args in signature order to avoid duplicate kwargs.
-                args: list[object] = []
-                used: set[str] = set()
-                for param in sig.parameters.values():
-                    if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
-                        if param.name in kwargs:
-                            args.append(kwargs[param.name])
-                            used.add(param.name)
-                final_kwargs = {k: v for k, v in kwargs.items() if k not in used}
-
-                if not args and not final_kwargs:
-                    results = generate_music(params, config)
-                else:
-                    results = generate_music(*args, **final_kwargs)
-            except Exception:
-                # Last resort: minimal positional call
-                results = generate_music(params, config)
+        # Official signature (docs): generate_music(dit_handler, llm_handler, params, config, save_dir=None, progress=None)
+        results = generate_music(
+            handler,
+            llm_handler,
+            params,
+            config,
+            save_dir=str(output_dir),
+        )
 
         if not results or not results[0].audio_path:
             raise RuntimeError("ACE-Step returned no audio.")
