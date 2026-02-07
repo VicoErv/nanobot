@@ -204,15 +204,37 @@ class AceStepTurboTextToAudioTool(Tool):
 
         config = GenerationConfig(**config_kwargs)
 
-        results = generate_music(
-            params=params,
-            config=config,
-            handler=handler,
-            llm_handler=llm_handler,
-            opt_handler=None,
-            load_audio=False,
-            use_tqdm=False,
-        )
+        gm_kwargs = {
+            "params": params,
+            "config": config,
+            "handler": handler,
+            "llm_handler": llm_handler,
+            "opt_handler": None,
+            "load_audio": False,
+            "use_tqdm": False,
+        }
+        try:
+            import inspect
+
+            sig = inspect.signature(generate_music)
+            allowed = set(sig.parameters.keys())
+            gm_kwargs = {k: v for k, v in gm_kwargs.items() if k in allowed}
+            results = generate_music(**gm_kwargs)
+        except TypeError:
+            # Fallback: pass params/config positionally and filter remaining kwargs
+            try:
+                import inspect
+
+                sig = inspect.signature(generate_music)
+                allowed = set(sig.parameters.keys())
+                extra_kwargs = {
+                    k: v
+                    for k, v in gm_kwargs.items()
+                    if k in allowed and k not in {"params", "config"}
+                }
+            except Exception:
+                extra_kwargs = {}
+            results = generate_music(params, config, **extra_kwargs)
 
         if not results or not results[0].audio_path:
             raise RuntimeError("ACE-Step returned no audio.")
