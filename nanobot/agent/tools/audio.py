@@ -235,6 +235,14 @@ class AceStepTurboTextToAudioTool(Tool):
             audio_path = getattr(results, "audio_path", None)
 
         if not audio_path:
+            # Fallback: pick the most recent audio file in output_dir.
+            exts = {".flac", ".wav", ".mp3", ".m4a", ".ogg"}
+            candidates = [p for p in Path(output_dir).iterdir() if p.suffix.lower() in exts]
+            if candidates:
+                candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                audio_path = str(candidates[0])
+
+        if not audio_path:
             raise RuntimeError("ACE-Step returned no audio.")
 
         return Path(audio_path)
