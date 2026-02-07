@@ -228,10 +228,16 @@ class AceStepTurboTextToAudioTool(Tool):
             save_dir=str(output_dir),
         )
 
-        if not results or not results[0].audio_path:
+        audio_path = None
+        if isinstance(results, (list, tuple)) and results:
+            audio_path = getattr(results[0], "audio_path", None)
+        else:
+            audio_path = getattr(results, "audio_path", None)
+
+        if not audio_path:
             raise RuntimeError("ACE-Step returned no audio.")
 
-        return Path(results[0].audio_path)
+        return Path(audio_path)
 
     async def _run_job(
         self,
