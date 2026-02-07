@@ -186,13 +186,23 @@ class AceStepTurboTextToAudioTool(Tool):
 
         params = GenerationParams(**params_kwargs)
 
-        config = GenerationConfig(
-            output_dir=str(output_dir),
-            output_name=f"acestep_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            sample_rate=44100,
-            audio_format=self._audio_format,
-            use_random_seed=True,
-        )
+        config_kwargs = {
+            "output_dir": str(output_dir),
+            "output_name": f"acestep_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "sample_rate": 44100,
+            "audio_format": self._audio_format,
+            "use_random_seed": True,
+        }
+        try:
+            import inspect
+
+            sig = inspect.signature(GenerationConfig)
+            allowed = set(sig.parameters.keys())
+            config_kwargs = {k: v for k, v in config_kwargs.items() if k in allowed}
+        except Exception:
+            pass
+
+        config = GenerationConfig(**config_kwargs)
 
         results = generate_music(
             params=params,
