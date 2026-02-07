@@ -84,12 +84,21 @@ async def _get_ace_handlers(model_name: str) -> tuple["AceStepHandler", "LLMHand
                 except TypeError:
                     llm_handler = LLMHandler()
                 checkpoint_dir = Path(persistent_storage) / "checkpoints"
-                llm_handler.initialize(
-                    checkpoint_dir=str(checkpoint_dir),
-                    model_name=os.environ.get("ACESTEP_LM_MODEL", "acestep-5Hz-lm-1.7B"),
-                    backend="pt",
-                    device="auto",
-                )
+                init_kwargs = {
+                    "checkpoint_dir": str(checkpoint_dir),
+                    "model_name": os.environ.get("ACESTEP_LM_MODEL", "acestep-5Hz-lm-1.7B"),
+                    "backend": "pt",
+                    "device": "auto",
+                }
+                try:
+                    import inspect
+
+                    sig = inspect.signature(llm_handler.initialize)
+                    allowed = set(sig.parameters.keys())
+                    init_kwargs = {k: v for k, v in init_kwargs.items() if k in allowed}
+                except Exception:
+                    pass
+                llm_handler.initialize(**init_kwargs)
             except Exception as e:
                 logger.warning(f"AceStep LLM init failed, continuing without LLM: {e}")
                 llm_handler = None
@@ -217,34 +226,47 @@ class AceStepTurboTextToAudioTool(Tool):
             import inspect
 
             sig = inspect.signature(generate_music)
-            kwargs: dict[str, object] = {}
+            allowed = set(sig.parameters.keys())
+            extra_kwargs = {
+                k: v
+                for k, v in base_kwargs.items()
+                if k in allowed and k not in {"params", "config"}
+            }
+            # First try: always pass params/config positionally.
+            results = generate_music(params, config, **extra_kwargs)
+        except TypeError:
+            try:
+                import inspect
 
-            # Map common alternative parameter names
-            for name in sig.parameters:
-                if name in {"params", "generation_params", "gen_params"}:
-                    kwargs[name] = params
-                elif name in {"config", "generation_config", "gen_config"}:
-                    kwargs[name] = config
-                elif name in base_kwargs:
-                    kwargs[name] = base_kwargs[name]
+                sig = inspect.signature(generate_music)
+                kwargs: dict[str, object] = {}
 
-            # Build positional args in signature order to avoid duplicate kwargs.
-            args: list[object] = []
-            used: set[str] = set()
-            for param in sig.parameters.values():
-                if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
-                    if param.name in kwargs:
-                        args.append(kwargs[param.name])
-                        used.add(param.name)
-            final_kwargs = {k: v for k, v in kwargs.items() if k not in used}
+                # Map common alternative parameter names
+                for name in sig.parameters:
+                    if name in {"params", "generation_params", "gen_params"}:
+                        kwargs[name] = params
+                    elif name in {"config", "generation_config", "gen_config"}:
+                        kwargs[name] = config
+                    elif name in base_kwargs:
+                        kwargs[name] = base_kwargs[name]
 
-            if not args and not final_kwargs:
+                # Build positional args in signature order to avoid duplicate kwargs.
+                args: list[object] = []
+                used: set[str] = set()
+                for param in sig.parameters.values():
+                    if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
+                        if param.name in kwargs:
+                            args.append(kwargs[param.name])
+                            used.add(param.name)
+                final_kwargs = {k: v for k, v in kwargs.items() if k not in used}
+
+                if not args and not final_kwargs:
+                    results = generate_music(params, config)
+                else:
+                    results = generate_music(*args, **final_kwargs)
+            except Exception:
+                # Last resort: minimal positional call
                 results = generate_music(params, config)
-            else:
-                results = generate_music(*args, **final_kwargs)
-        except Exception:
-            # Last resort: minimal positional call
-            results = generate_music(params, config)
 
         if not results or not results[0].audio_path:
             raise RuntimeError("ACE-Step returned no audio.")
