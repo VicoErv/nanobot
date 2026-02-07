@@ -204,7 +204,7 @@ class AceStepTurboTextToAudioTool(Tool):
 
         config = GenerationConfig(**config_kwargs)
 
-        gm_kwargs = {
+        gm_kwargs: dict[str, object] = {
             "params": params,
             "config": config,
             "handler": handler,
@@ -217,24 +217,25 @@ class AceStepTurboTextToAudioTool(Tool):
             import inspect
 
             sig = inspect.signature(generate_music)
-            allowed = set(sig.parameters.keys())
-            gm_kwargs = {k: v for k, v in gm_kwargs.items() if k in allowed}
-            results = generate_music(**gm_kwargs)
-        except TypeError:
-            # Fallback: pass params/config positionally and filter remaining kwargs
-            try:
-                import inspect
+            allowed = {k: v for k, v in gm_kwargs.items() if k in sig.parameters}
 
-                sig = inspect.signature(generate_music)
-                allowed = set(sig.parameters.keys())
-                extra_kwargs = {
-                    k: v
-                    for k, v in gm_kwargs.items()
-                    if k in allowed and k not in {"params", "config"}
-                }
-            except Exception:
-                extra_kwargs = {}
-            results = generate_music(params, config, **extra_kwargs)
+            # Build positional args in signature order to avoid duplicate kwargs.
+            args: list[object] = []
+            used: set[str] = set()
+            for param in sig.parameters.values():
+                if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
+                    if param.name in allowed:
+                        args.append(allowed[param.name])
+                        used.add(param.name)
+            kwargs = {
+                k: v
+                for k, v in allowed.items()
+                if k not in used
+            }
+            results = generate_music(*args, **kwargs)
+        except Exception:
+            # Last resort: minimal positional call
+            results = generate_music(params, config)
 
         if not results or not results[0].audio_path:
             raise RuntimeError("ACE-Step returned no audio.")
